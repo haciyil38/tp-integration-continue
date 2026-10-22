@@ -1,0 +1,40 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-pipeline}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-pipeline}
+      POSTGRES_DB: ${POSTGRES_DB:-pipeline}
+    ports:
+      - "${POSTGRES_PORT:-5433}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-pipeline} -d ${POSTGRES_DB:-pipeline}"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  garage:
+    image: dxflrs/garage:v1.0.1
+    ports:
+      - "3900:3900" # S3 API
+      - "3903:3903" # admin API
+    volumes:
+      - ./docker/garage/garage.toml:/etc/garage.toml:ro
+      - garage-meta:/var/lib/garage/meta
+      - garage-data:/var/lib/garage/data
+
+  metabase:
+    image: metabase/metabase:v0.50.26
+    profiles: ["dashboard"]
+    ports:
+      - "3000:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  pgdata:
+  garage-meta:
+  garage-data:
