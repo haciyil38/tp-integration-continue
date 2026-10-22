@@ -22,23 +22,7 @@ jobs:
   pipeline:
     needs: lint-and-unit
     runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:16-alpine
-        env:
-          POSTGRES_USER: pipeline
-          POSTGRES_PASSWORD: pipeline
-          POSTGRES_DB: pipeline
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U pipeline -d pipeline"
-          --health-interval 3s
-          --health-timeout 3s
-          --health-retries 20
     env:
-      POSTGRES_HOST: localhost
-      POSTGRES_PORT: "5432"
       PYTHONPATH: src
     steps:
       - uses: actions/checkout@v4
@@ -48,9 +32,16 @@ jobs:
           cache: pip
           cache-dependency-path: requirements-dev.txt
       - run: pip install -r requirements-dev.txt
-      - name: Generate CSV files
-        run: python -m pipeline.generate --out-dir data/incoming
-      - name: Run pipeline (processing + insertion)
-        run: python -m pipeline.run --data-dir data/incoming
+      - name: Start Postgres and the local S3 (Garage)
+        run: docker compose up -d --wait postgres garage
+      - name: Init Garage (layout, bucket, access key)
+        run: ./scripts/init_garage.sh
+      - name: Generate CSV files and upload them to S3
+        run: python -m pipeline.generate --out-dir data/incoming --s3
+      - name: Run pipeline (S3 download + processing + insertion)
+        run: python -m pipeline.run --source s3
       - name: Integration tests (values in database)
         run: pytest -m integration
+      - name: Services logs on failure
+        if: failure()
+        run: docker compose logs --tail=100

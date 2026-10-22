@@ -9,10 +9,11 @@ import pytest
 
 from pipeline import db
 from pipeline.config import Settings
-from pipeline.faults import flaky
+from pipeline.faults import flaky_db
 from pipeline.generate import generate_files
 from pipeline.models import FlaggedTransaction, ProcessingResult, Transaction
 from pipeline.run import run_pipeline
+from pipeline.sources import local_source
 
 pytestmark = pytest.mark.integration
 
@@ -50,7 +51,7 @@ def count(connect, table):
 
 
 def test_inserted_values_are_correct(connect, data_dir):
-    outcomes = run_pipeline(data_dir, connect, wait_seconds=0)
+    outcomes = run_pipeline(local_source(data_dir), connect, wait_seconds=0)
 
     assert outcomes == dict.fromkeys(FILES, True)
     assert count(connect, "processed_files") == 3
@@ -102,8 +103,8 @@ def test_inserted_values_are_correct(connect, data_dir):
 
 
 def test_rerun_does_not_process_files_twice(connect, data_dir):
-    run_pipeline(data_dir, connect, wait_seconds=0)
-    outcomes = run_pipeline(data_dir, connect, wait_seconds=0)
+    run_pipeline(local_source(data_dir), connect, wait_seconds=0)
+    outcomes = run_pipeline(local_source(data_dir), connect, wait_seconds=0)
 
     assert outcomes == dict.fromkeys(FILES, False)
     assert count(connect, "processed_files") == 3
@@ -112,19 +113,21 @@ def test_rerun_does_not_process_files_twice(connect, data_dir):
 
 
 def test_same_content_under_another_name_is_skipped(connect, data_dir):
-    run_pipeline(data_dir, connect, wait_seconds=0)
+    run_pipeline(local_source(data_dir), connect, wait_seconds=0)
     (data_dir / "copy.csv").write_bytes((data_dir / FILES[0]).read_bytes())
 
-    outcomes = run_pipeline(data_dir, connect, wait_seconds=0)
+    outcomes = run_pipeline(local_source(data_dir), connect, wait_seconds=0)
 
     assert outcomes["copy.csv"] is False
     assert count(connect, "transactions") == 16
 
 
 def test_retry_recovers_from_insertion_failures(connect, data_dir):
-    insert = flaky(db.insert_file_results, failures=2)
+    insert = flaky_db(db.insert_file_results, failures=2)
 
-    outcomes = run_pipeline(data_dir, connect, insert=insert, attempts=3, wait_seconds=0)
+    outcomes = run_pipeline(
+        local_source(data_dir), connect, insert=insert, attempts=3, wait_seconds=0
+    )
 
     assert outcomes == dict.fromkeys(FILES, True)
     assert count(connect, "transactions") == 16  # no duplicate despite the retries

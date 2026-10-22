@@ -4,6 +4,8 @@ import argparse
 import csv
 from pathlib import Path
 
+from pipeline import s3
+from pipeline.config import Settings
 from pipeline.models import CSV_COLUMNS
 
 # name -> (iban, country, bank). All IBANs are fictitious.
@@ -65,9 +67,19 @@ def generate_files(out_dir: Path) -> list[Path]:
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="Generate the deterministic transaction CSVs")
     parser.add_argument("--out-dir", type=Path, default=Path("data/incoming"))
+    parser.add_argument("--s3", action="store_true", help="also upload the files to the S3 bucket")
+    parser.add_argument("--prefix", default="incoming/", help="S3 key prefix")
     args = parser.parse_args(argv)
-    for path in generate_files(args.out_dir):
+
+    paths = generate_files(args.out_dir)
+    for path in paths:
         print(f"generated {path}")
+
+    if args.s3:
+        settings = Settings.from_env()
+        keys = s3.upload_files(s3.make_client(settings), settings.s3_bucket, paths, args.prefix)
+        for key in keys:
+            print(f"uploaded s3://{settings.s3_bucket}/{key}")
 
 
 if __name__ == "__main__":
