@@ -34,7 +34,7 @@ def flag_transactions(
     transactions: Iterable[Transaction], threshold: Decimal = LARGE_AMOUNT_THRESHOLD
 ) -> tuple[FlaggedTransaction, ...]:
     """Flag every transaction whose amount is strictly above the threshold."""
-    return tuple(FlaggedTransaction(t, t.montant >= threshold) for t in transactions)
+    return tuple(FlaggedTransaction(t, t.montant > threshold) for t in transactions)
 
 
 def process(
