@@ -42,8 +42,12 @@ src/pipeline/
   run.py          orchestration : source -> traitement -> insertion
   faults.py       injection de pannes pour démontrer les retries
 scripts/
-  init_garage.sh      initialise Garage (layout, bucket, clé d'accès)
+  init_garage.sh      initialise Garage (layout, bucket, clé d'accès), sur Compose ou Kubernetes
   setup_metabase.py   crée la connexion, les questions et le dashboard
+  deploy_k8s.sh       déploie Postgres, Garage et le CronJob sur Kubernetes
+  verify_k8s.sh       vérifie le déploiement de bout en bout
+Dockerfile         image de la pipeline
+k8s/               manifests Kubernetes (kustomize) ; demo/ contient le job de dépôt des CSV
 tests/unit/        tests sans infrastructure
 tests/integration/ tests avec PostgreSQL et Garage réels
 docs/captures/     captures d'écran citées plus bas
@@ -59,6 +63,7 @@ docs/captures/     captures d'écran citées plus bas
 | Retry | tenacity |
 | Dashboard | Metabase |
 | Conteneurs | Docker, Docker Compose |
+| Orchestration (niveau 3) | Kubernetes : kind dans la CI, minikube en local |
 | Tests, qualité | pytest, ruff |
 | CI | GitHub Actions |
 
@@ -129,6 +134,37 @@ variable d'environnement a priorité sur lui.
 | 2. CSV déposés dans le S3 lancé en début de pipeline | `generate --s3` ; le job CI démarre Garage en premier |
 | 3. Le traitement lit depuis le S3 | `sources.s3_source` (source par défaut de `run.py`) |
 | 4. Retry si la récupération échoue | `s3.call_with_retry`, voir [retry](#retry) |
+
+### Niveau 3 : déploiement continu sur Kubernetes
+
+Amélioration choisie : une pipeline CD qui déploie via Docker la production sur Kubernetes (S3, base de
+données, et le script de traitement relancé régulièrement).
+
+| Élément | Réalisation |
+|---|---|
+| Image | [Dockerfile](Dockerfile) : Python 3.12 slim, utilisateur non-root, configuration par variables d'environnement |
+| S3 et base | StatefulSets Garage et PostgreSQL avec volumes persistants : [k8s/garage.yaml](k8s/garage.yaml), [k8s/postgres.yaml](k8s/postgres.yaml) |
+| Traitement régulier | [CronJob](k8s/cronjob.yaml) toutes les 5 minutes, jamais deux exécutions en parallèle (`concurrencyPolicy: Forbid`). L'idempotence rend les relances sans risque : un fichier déjà traité est ignoré. |
+| Déploiement | [scripts/deploy_k8s.sh](scripts/deploy_k8s.sh), rejouable : applique les manifests, initialise Garage, crée le Secret `s3-credentials` (la clé n'est jamais dans le dépôt) |
+| Vérification | [scripts/verify_k8s.sh](scripts/verify_k8s.sh) : dépose les CSV de démo dans S3, déclenche le CronJob, contrôle la base (3 fichiers, 16 transactions, 6 flaggées), relance et vérifie l'absence de doublon |
+| CD | job `deploy` de la CI : sur `main`, une fois la pipeline verte, il construit l'image, crée un cluster **kind** éphémère dans le runner GitHub Actions (aucune VM n'est disponible), déploie, vérifie, puis **publie l'image sur ghcr.io uniquement si la vérification a réussi** |
+
+Pour rejouer le déploiement sur un cluster local (minikube ici ; avec kind, remplacer la ligne de chargement
+par `kind load docker-image ...`) :
+
+```bash
+IMG=ghcr.io/haciyil38/tp-integration-continue/pipeline:latest
+docker build -t $IMG .
+minikube image load $IMG
+./scripts/deploy_k8s.sh
+./scripts/verify_k8s.sh
+kubectl -n pipeline get cronjob,pods
+```
+
+Un piège rencontré pendant la validation : Kubernetes injecte dans chaque pod des variables d'environnement
+décrivant les Services du namespace. Le Service `postgres` crée ainsi `POSTGRES_PORT=tcp://10.x.x.x:5432`, qui
+écrase la variable du même nom lue par l'application et la fait planter. Les pods sont donc déclarés avec
+`enableServiceLinks: false`.
 
 ### Dashboard
 
@@ -245,9 +281,13 @@ donc 5000.00 serait flaggé à tort. Les tests le détectent, la CI échoue et l
 
 ## Limites et suite
 
-- **Niveau 3 non réalisé à ce jour.** Pistes prévues : déploiement continu sur Kubernetes (kind dans le
-  runner GitHub Actions) avec un CronJob pour lancer régulièrement le traitement. Aucune VM n'est
-  disponible pour ce projet ; un cluster éphémère remplacerait donc la machine de production.
+- **Niveau 3 : une seule amélioration réalisée** (déploiement continu sur Kubernetes). Le déploiement a été
+  validé sur minikube en local ; l'OCR, l'extraction par modèle de langage et Terraform/OpenTofu ne sont
+  pas faits. Comme aucune VM n'est disponible, le « serveur de production » du CD est un cluster kind
+  éphémère créé dans le runner : il prouve que le déploiement fonctionne, mais rien ne reste en service
+  après l'exécution.
+- Les manifests Kubernetes restent simples : image taguée `latest`, pas de limites de ressources, Secret
+  Postgres en clair dans le dépôt (valeurs de développement), un seul exemplaire de chaque composant.
 - Les identifiants (Metabase, Postgres, Garage) sont des valeurs de développement, adaptées à un TP local et
   à la CI ; elles ne conviennent pas à une production.
 - Metabase utilise sa base H2 embarquée (persistée dans un volume Docker), ce qu'il déconseille en production.

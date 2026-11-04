@@ -1,15 +1,19 @@
 #!/usr/bin/env bash
 # Initialise a single-node Garage: layout, bucket, access key. Idempotent.
-# Writes S3_ACCESS_KEY / S3_SECRET_KEY into .env (created from .env.example if missing).
+# Writes S3_ACCESS_KEY / S3_SECRET_KEY into $ENV_FILE (default .env, created from .env.example).
+#
+# Targets the docker compose Garage by default. Override GARAGE_CMD to target another one, e.g.
+#   GARAGE_CMD="kubectl -n pipeline exec garage-0 -- /garage" ENV_FILE=/tmp/k8s.env ./scripts/init_garage.sh
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
 BUCKET="${S3_BUCKET:-transactions}"
 KEY_NAME="pipeline-key"
-G="docker compose exec -T garage /garage"
+G="${GARAGE_CMD:-docker compose exec -T garage /garage}"
+ENV_FILE="${ENV_FILE:-.env}"
 
-[ -f .env ] || cp .env.example .env
+[ -f "$ENV_FILE" ] || cp .env.example "$ENV_FILE"
 
 echo "Waiting for Garage..."
 for _ in $(seq 1 30); do
@@ -37,6 +41,6 @@ ACCESS=$(echo "$INFO" | awk '/Key ID:/{print $3}')
 SECRET=$(echo "$INFO" | awk '/Secret key:/{print $3}')
 
 sed -i.bak -e "s|^S3_ACCESS_KEY=.*|S3_ACCESS_KEY=$ACCESS|" \
-           -e "s|^S3_SECRET_KEY=.*|S3_SECRET_KEY=$SECRET|" .env && rm -f .env.bak
+           -e "s|^S3_SECRET_KEY=.*|S3_SECRET_KEY=$SECRET|" "$ENV_FILE" && rm -f "$ENV_FILE.bak"
 
 echo "Garage ready: bucket=$BUCKET key=$ACCESS"

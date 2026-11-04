@@ -1,0 +1,40 @@
+# Runs the pipeline on a schedule: every CSV found in the S3 bucket is processed, files already
+# handled are skipped (idempotence), so running it often is safe.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: pipeline
+  namespace: pipeline
+spec:
+  schedule: "*/5 * * * *"
+  concurrencyPolicy: Forbid # never two runs at the same time
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      template:
+        spec:
+          enableServiceLinks: false # otherwise Kubernetes injects POSTGRES_PORT=tcp://...
+          restartPolicy: Never
+          containers:
+            - name: pipeline
+              image: ghcr.io/haciyil38/tp-integration-continue/pipeline:latest
+              imagePullPolicy: IfNotPresent
+              args: ["python", "-m", "pipeline.run", "--source", "s3"]
+              env:
+                - name: POSTGRES_HOST
+                  value: postgres
+                - name: POSTGRES_PORT
+                  value: "5432"
+                - name: S3_ENDPOINT
+                  value: http://garage:3900
+                - name: S3_REGION
+                  value: garage
+                - name: S3_BUCKET
+                  value: transactions
+              envFrom:
+                - secretRef:
+                    name: postgres-credentials
+                - secretRef:
+                    name: s3-credentials

@@ -1,0 +1,28 @@
+# Demo only (not part of the production kustomization): uploads the deterministic CSV files to S3.
+# In production the files are produced by an upstream system.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: seed-data
+  namespace: pipeline
+spec:
+  backoffLimit: 2
+  template:
+    spec:
+      enableServiceLinks: false # otherwise Kubernetes injects POSTGRES_PORT=tcp://...
+      restartPolicy: Never
+      containers:
+        - name: seed
+          image: ghcr.io/haciyil38/tp-integration-continue/pipeline:latest
+          imagePullPolicy: IfNotPresent
+          args: ["python", "-m", "pipeline.generate", "--out-dir", "/tmp/incoming", "--s3"]
+          env:
+            - name: S3_ENDPOINT
+              value: http://garage:3900
+            - name: S3_REGION
+              value: garage
+            - name: S3_BUCKET
+              value: transactions
+          envFrom:
+            - secretRef:
+                name: s3-credentials
