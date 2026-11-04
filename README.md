@@ -271,6 +271,16 @@ donc 5000.00 serait flaggé à tort. Les tests le détectent, la CI échoue et l
 | **D5** CI verte avec Garage démarré dans le job | ![](docs/captures/D5_ci-verte-garage.png) |
 | **D6** Contenu du bucket Garage | ![](docs/captures/D6_bucket-garage.png) |
 
+### Déploiement continu (niveau 3)
+
+| | |
+|---|---|
+| **F1** Ressources déployées sur Kubernetes (minikube) : CronJob, pods, volumes | ![](docs/captures/F1_k8s-ressources-minikube.png) |
+| **F2** Vérification du déploiement (`verify_k8s.sh`) : CSV déposés dans S3, CronJob déclenché, contenu de la base contrôlé, relance sans doublon | ![](docs/captures/F2_verification-deploiement-k8s.png) |
+| **F3** CI sur `main` : `lint-and-unit` -> `pipeline` -> `deploy`, tous verts | ![](docs/captures/F3_ci-trois-jobs-deploy.png) |
+| **F3** Étapes du job `deploy` : cluster kind, déploiement, vérification, publication de l'image | ![](docs/captures/F3_job-deploy-etapes.png) |
+| **F4** Image publiée sur ghcr.io, rattachée au dépôt (section « Packages ») | ![](docs/captures/F4_package-ghcr.png) |
+
 ### Dashboard
 
 | | |
@@ -281,8 +291,8 @@ donc 5000.00 serait flaggé à tort. Les tests le détectent, la CI échoue et l
 
 ## Limites et suite
 
-- **Niveau 3 : une seule amélioration réalisée** (déploiement continu sur Kubernetes). Le déploiement a été
-  validé sur minikube en local ; l'OCR, l'extraction par modèle de langage et Terraform/OpenTofu ne sont
+- **Niveau 3 : une seule amélioration réalisée** (déploiement continu sur Kubernetes). Le déploiement est
+  validé sur minikube en local et dans la CI (kind) ; l'OCR, l'extraction par modèle de langage et Terraform/OpenTofu ne sont
   pas faits. Comme aucune VM n'est disponible, le « serveur de production » du CD est un cluster kind
   éphémère créé dans le runner : il prouve que le déploiement fonctionne, mais rien ne reste en service
   après l'exécution.
